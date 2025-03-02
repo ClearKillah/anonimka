@@ -4,7 +4,7 @@ const userSchema = new mongoose.Schema({
   nickname: { 
     type: String, 
     required: true, 
-    unique: true 
+    trim: true
   },
   isActive: { 
     type: Boolean, 
@@ -13,6 +13,14 @@ const userSchema = new mongoose.Schema({
   currentChatPartnerId: { 
     type: String, 
     default: null 
+  },
+  socketId: {
+    type: String,
+    default: null
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
   }
 });
 
