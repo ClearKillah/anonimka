@@ -27,18 +27,15 @@ const App: React.FC = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [screen, setScreen] = useState<'registration' | 'searching' | 'chat'>('registration');
 
-  // Initialize socket and set up listeners
   useEffect(() => {
     const newSocket = io(SOCKET_URL);
     setSocket(newSocket);
 
-    // Initialize Telegram Web App
     if (window.Telegram?.WebApp) {
       const tg = window.Telegram.WebApp;
       tg.ready();
       tg.expand();
 
-      // Set CSS variables from Telegram theme
       document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color);
       document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color);
       document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color);
@@ -47,7 +44,6 @@ const App: React.FC = () => {
       document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color);
     }
 
-    // Setup viewport height for mobile browsers
     const setVh = () => {
       const vh = window.innerHeight * 0.01;
       document.documentElement.style.setProperty('--vh', `${vh}px`);
@@ -62,7 +58,6 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Socket event listeners
   useEffect(() => {
     if (!socket) return;
 
