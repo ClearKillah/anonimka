@@ -17,6 +17,7 @@
 
 html, body, #root {
   height: 100%;
+  height: var(--tg-viewport-stable-height);
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -74,24 +75,10 @@ body {
   }
 }
 
-/* Prevent content from jumping when keyboard appears */
-.keyboard-open .app-container {
-  height: 100%;
-}
-
-#root {
-  height: 100%;
-}
-
-.viewport-height {
-  height: 100vh;
-  height: calc(var(--vh, 1vh) * 100);
-}
-
-/* РАДИКАЛЬНОЕ РЕШЕНИЕ ДЛЯ ПОЗИЦИОНИРОВАНИЯ НАД КЛАВИАТУРОЙ */
+/* ГАРАНТИРОВАННОЕ ПОЗИЦИОНИРОВАНИЕ НАД КЛАВИАТУРОЙ */
 .input-container {
   position: fixed !important;
-  bottom: var(--keyboard-height) !important;
+  bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
   padding: 10px !important;
@@ -101,12 +88,17 @@ body {
   transform: translateZ(0) !important;
   z-index: 9999 !important;
   will-change: transform !important;
-  transition: bottom 0.1s ease-out !important;
-  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1) !important;
+  transition: transform 0.1s ease-out !important;
 }
 
+/* Класс для iOS устройств */
+.ios-device .input-container {
+  transform: translateY(calc(-1 * var(--keyboard-height))) !important;
+}
+
+/* Класс для активной клавиатуры */
 .keyboard-open .input-container {
-  bottom: 0 !important;
+  transform: translateY(0) !important;
 }
 
 .message-list {
@@ -115,4 +107,13 @@ body {
   padding-bottom: calc(70px + var(--safe-area-inset-bottom));
   -webkit-overflow-scrolling: touch;
   margin-bottom: 60px !important; /* Обеспечиваем место для input-container */
+}
+
+#root {
+  height: 100%;
+}
+
+.viewport-height {
+  height: 100vh;
+  height: calc(var(--vh, 1vh) * 100);
 } 

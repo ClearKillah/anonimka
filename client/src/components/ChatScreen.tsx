@@ -49,8 +49,30 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     scrollToBottom();
   }, [keyboardOpen]);
   
+  // Обработка изменений в Telegram Mini App
+  useEffect(() => {
+    // Функция для обработки изменений viewport
+    const handleViewportChange = () => {
+      scrollToBottom();
+    };
+    
+    // Подписываемся на события Telegram Mini App
+    if (window.Telegram?.WebApp) {
+      window.Telegram.WebApp.onEvent('viewportChanged', handleViewportChange);
+    }
+    
+    return () => {
+      // Отписываемся от событий
+      if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.offEvent('viewportChanged', handleViewportChange);
+      }
+    };
+  }, []);
+  
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
   };
   
   const handleSubmit = (e: React.FormEvent) => {
@@ -62,6 +84,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       // Re-focus the input after sending
       setTimeout(() => {
         inputRef.current?.focus();
+        scrollToBottom();
       }, 0);
     }
   };
@@ -144,7 +167,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
         <div ref={messagesEndRef} />
       </div>
       
-      {/* Message Input - РАДИКАЛЬНОЕ РЕШЕНИЕ */}
+      {/* Message Input - ГАРАНТИРОВАННОЕ ПОЗИЦИОНИРОВАНИЕ НАД КЛАВИАТУРОЙ */}
       <div className="input-container">
         <form onSubmit={handleSubmit} className="flex items-center">
           <input
@@ -168,6 +191,15 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
                 inputContainer.style.bottom = '0';
                 inputContainer.style.zIndex = '9999';
               }
+            }}
+            onBlur={() => {
+              // Удаляем класс при потере фокуса
+              setTimeout(() => {
+                if (document.activeElement?.tagName !== 'INPUT' && 
+                    document.activeElement?.tagName !== 'TEXTAREA') {
+                  document.body.classList.remove('keyboard-open');
+                }
+              }, 100);
             }}
           />
           <button

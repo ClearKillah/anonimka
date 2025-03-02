@@ -20,6 +20,8 @@ export interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   isExpanded: boolean;
+  viewportHeight: number;
+  viewportStableHeight: number;
   initDataUnsafe?: {
     user?: {
       id: number;

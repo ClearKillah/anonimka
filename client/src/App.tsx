@@ -93,17 +93,34 @@ const App: React.FC = () => {
         // Set CSS variables for viewport height
         document.documentElement.style.setProperty(
           '--tg-viewport-stable-height', 
-          `${window.innerHeight}px`
+          `${webApp.viewportStableHeight || window.innerHeight}px`
+        );
+        
+        document.documentElement.style.setProperty(
+          '--tg-viewport-height', 
+          `${webApp.viewportHeight || window.innerHeight}px`
         );
         
         // Listen to viewport changes from Telegram
-        webApp.onEvent('viewportChanged', () => {
-          setViewportHeight(window.innerHeight);
+        webApp.onEvent('viewportChanged', (event: any) => {
+          setViewportHeight(webApp.viewportHeight || window.innerHeight);
           document.documentElement.style.setProperty(
             '--tg-viewport-height', 
-            `${window.innerHeight}px`
+            `${webApp.viewportHeight || window.innerHeight}px`
           );
+          
+          if (event && event.isStateStable) {
+            document.documentElement.style.setProperty(
+              '--tg-viewport-stable-height', 
+              `${webApp.viewportStableHeight || window.innerHeight}px`
+            );
+          }
         });
+        
+        // Определяем iOS устройство
+        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+          document.body.classList.add('ios-device');
+        }
       } else if (process.env.NODE_ENV !== 'production') {
         // For development without Telegram
         setTelegramId(`dev_${Math.floor(Math.random() * 10000)}`);
@@ -112,7 +129,7 @@ const App: React.FC = () => {
     
     handleTelegramWebAppReady();
     
-    // РАДИКАЛЬНОЕ РЕШЕНИЕ ДЛЯ КЛАВИАТУРЫ
+    // ГАРАНТИРОВАННОЕ РЕШЕНИЕ ДЛЯ КЛАВИАТУРЫ
     const handleResize = () => {
       if (window.visualViewport) {
         const newHeight = window.visualViewport.height;
