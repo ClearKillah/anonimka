@@ -16,7 +16,7 @@ declare global {
 }
 
 const SOCKET_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://your-production-server.com' 
+  ? 'https://anonimka-production.up.railway.app' 
   : 'http://localhost:5000';
 
 const App: React.FC = () => {
