@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
+const db = require('./db');
 
 const User = require('./models/User');
 const Message = require('./models/Message');
@@ -65,13 +66,13 @@ setInterval(async () => {
           if (partner) {
             console.log('Notifying partner that user became inactive:', partner.nickname);
             partner.currentChatPartnerId = null;
-            await partner.save();
+            await User.update(partner);
             io.to(partner.socketId).emit('partnerLeft');
           }
           
           user.currentChatPartnerId = null;
           user.isActive = false;
-          await user.save();
+          await User.update(user);
         }
       }
     }
@@ -89,12 +90,12 @@ io.on('connection', (socket) => {
     if (!user) return;
     user.socketId = socket.id;
     user.lastActive = Date.now();
-    await user.save();
-    socket.join(user._id.toString());
+    await User.update(user);
+    socket.join(user.id.toString());
     
     // Обновляем информацию о пользователе в списке активных соединений
     if (activeConnections.has(socket.id)) {
-      activeConnections.get(socket.id).userId = user._id;
+      activeConnections.get(socket.id).userId = user.id;
       activeConnections.get(socket.id).lastActive = Date.now();
     }
   };
@@ -109,7 +110,7 @@ io.on('connection', (socket) => {
     // Если есть пользователь, обновляем его активность
     if (currentUser) {
       currentUser.lastActive = Date.now();
-      await currentUser.save();
+      await User.update(currentUser);
     }
   });
 
@@ -126,19 +127,19 @@ io.on('connection', (socket) => {
       const existingUser = await User.findOne({ nickname: trimmedNickname });
       
       if (existingUser) {
-        console.log('Existing user found:', existingUser._id);
+        console.log('Existing user found:', existingUser.id);
         currentUser = existingUser;
         currentUser.isActive = true;
         await updateUserSocketId(currentUser);
       } else {
         console.log('Creating new user with nickname:', trimmedNickname);
         currentUser = await User.create({ nickname: trimmedNickname });
-        console.log('New user created:', currentUser._id);
+        console.log('New user created:', currentUser.id);
         await updateUserSocketId(currentUser);
       }
       
       const userData = { 
-        userId: currentUser._id.toString(), 
+        userId: currentUser.id.toString(), 
         nickname: currentUser.nickname 
       };
       
@@ -178,14 +179,14 @@ io.on('connection', (socket) => {
       } else {
         // Если партнер неактивен, очищаем связь
         currentUser.currentChatPartnerId = null;
-        await currentUser.save();
+        await User.update(currentUser);
       }
     }
     
-    console.log('Adding user to waiting pool:', currentUser._id);
-    waitingUsers.add(currentUser._id.toString());
+    console.log('Adding user to waiting pool:', currentUser.id);
+    waitingUsers.add(currentUser.id.toString());
     
-    const availableUsers = [...waitingUsers].filter(id => id !== currentUser._id.toString());
+    const availableUsers = [...waitingUsers].filter(id => id !== currentUser.id.toString());
     console.log('Available users:', availableUsers);
     
     if (availableUsers.length > 0) {
@@ -193,18 +194,18 @@ io.on('connection', (socket) => {
       const partnerId = availableUsers[randomIndex];
       
       console.log('Found partner:', partnerId);
-      waitingUsers.delete(currentUser._id.toString());
+      waitingUsers.delete(currentUser.id.toString());
       waitingUsers.delete(partnerId);
       
       const partner = await User.findById(partnerId);
       
       if (partner && partner.isActive) {
-        console.log('Matching users:', currentUser._id, 'with', partnerId);
+        console.log('Matching users:', currentUser.id, 'with', partnerId);
         currentUser.currentChatPartnerId = partnerId;
-        partner.currentChatPartnerId = currentUser._id.toString();
+        partner.currentChatPartnerId = currentUser.id.toString();
         
-        await currentUser.save();
-        await partner.save();
+        await User.update(currentUser);
+        await User.update(partner);
         
         console.log('Notifying users of match');
         socket.emit('partnerFound', { partnerId, nickname: partner.nickname });
@@ -213,12 +214,12 @@ io.on('connection', (socket) => {
         const partnerSocketId = partner.socketId;
         if (partnerSocketId) {
           io.to(partnerSocketId).emit('partnerFound', { 
-            partnerId: currentUser._id.toString(), 
+            partnerId: currentUser.id.toString(), 
             nickname: currentUser.nickname 
           });
         } else {
           io.to(partnerId).emit('partnerFound', { 
-            partnerId: currentUser._id.toString(), 
+            partnerId: currentUser.id.toString(), 
             nickname: currentUser.nickname 
           });
         }
@@ -245,7 +246,7 @@ io.on('connection', (socket) => {
     
     try {
       const message = await Message.create({
-        senderId: currentUser._id.toString(),
+        senderId: currentUser.id.toString(),
         receiverId,
         content
       });
@@ -266,12 +267,12 @@ io.on('connection', (socket) => {
       return;
     }
     
-    console.log('Get messages between', currentUser._id, 'and', partnerId);
+    console.log('Get messages between', currentUser.id, 'and', partnerId);
     try {
       const messages = await Message.find({
         $or: [
-          { senderId: currentUser._id.toString(), receiverId: partnerId },
-          { senderId: partnerId, receiverId: currentUser._id.toString() }
+          { senderId: currentUser.id.toString(), receiverId: partnerId },
+          { senderId: partnerId, receiverId: currentUser.id.toString() }
         ]
       }).sort({ timestamp: 1 });
       
@@ -297,12 +298,12 @@ io.on('connection', (socket) => {
       if (partner) {
         console.log('Notifying partner', partner.nickname, 'that user left');
         partner.currentChatPartnerId = null;
-        await partner.save();
+        await User.update(partner);
         io.to(partnerId).emit('partnerLeft');
       }
       
       currentUser.currentChatPartnerId = null;
-      await currentUser.save();
+      await User.update(currentUser);
     }
     
     console.log('Initiating new partner search');
@@ -318,7 +319,7 @@ io.on('connection', (socket) => {
     
     if (currentUser) {
       console.log('User disconnected:', currentUser.nickname);
-      waitingUsers.delete(currentUser._id.toString());
+      waitingUsers.delete(currentUser.id.toString());
       
       if (currentUser.currentChatPartnerId) {
         const partnerId = currentUser.currentChatPartnerId;
@@ -340,7 +341,7 @@ io.on('connection', (socket) => {
       currentUser.isActive = false;
       currentUser.currentChatPartnerId = null;
       currentUser.socketId = null;
-      await currentUser.save();
+      await User.update(currentUser);
     }
   });
 });
