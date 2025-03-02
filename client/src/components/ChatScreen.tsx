@@ -12,6 +12,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [inputHeight, setInputHeight] = useState(64);
   
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -24,6 +25,29 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       inputRef.current.focus();
     }
   }, []);
+  
+  // Measure input container height
+  useEffect(() => {
+    const resizeObserver = new ResizeObserver(entries => {
+      for (let entry of entries) {
+        setInputHeight(entry.contentRect.height);
+      }
+    });
+    
+    const inputContainer = document.querySelector('.input-container');
+    if (inputContainer) {
+      resizeObserver.observe(inputContainer);
+    }
+    
+    return () => {
+      resizeObserver.disconnect();
+    };
+  }, []);
+  
+  // Scroll to bottom when keyboard opens/closes
+  useEffect(() => {
+    scrollToBottom();
+  }, [keyboardOpen]);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -49,7 +73,6 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   
   // Calculate message container height based on viewport and keyboard
   const getMessageContainerStyle = () => {
-    const inputHeight = 64; // Height of input area
     const headerHeight = 60; // Height of header
     const bottomPadding = 16; // Bottom padding
     
@@ -60,7 +83,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     
     return {
       height: `${height}px`,
-      maxHeight: `${height}px`
+      maxHeight: `${height}px`,
+      paddingBottom: keyboardOpen ? '0px' : `${inputHeight}px`
     };
   };
   
@@ -120,7 +144,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
         <div ref={messagesEndRef} />
       </div>
       
-      {/* Message Input */}
+      {/* Message Input - РАДИКАЛЬНОЕ РЕШЕНИЕ */}
       <div className="input-container">
         <form onSubmit={handleSubmit} className="flex items-center">
           <input
@@ -130,6 +154,21 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Type a message..."
             className="flex-1 border border-gray-300 dark:border-gray-600 rounded-l-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-100"
+            onFocus={() => {
+              // Принудительно прокручиваем вниз при фокусе
+              setTimeout(scrollToBottom, 300);
+              
+              // Добавляем класс для iOS
+              document.body.classList.add('keyboard-open');
+              
+              // Принудительно устанавливаем позицию
+              const inputContainer = document.querySelector('.input-container');
+              if (inputContainer && inputContainer instanceof HTMLElement) {
+                inputContainer.style.position = 'fixed';
+                inputContainer.style.bottom = '0';
+                inputContainer.style.zIndex = '9999';
+              }
+            }}
           />
           <button
             type="submit"

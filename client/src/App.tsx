@@ -112,7 +112,7 @@ const App: React.FC = () => {
     
     handleTelegramWebAppReady();
     
-    // Handle viewport changes for mobile keyboard
+    // РАДИКАЛЬНОЕ РЕШЕНИЕ ДЛЯ КЛАВИАТУРЫ
     const handleResize = () => {
       if (window.visualViewport) {
         const newHeight = window.visualViewport.height;
@@ -122,6 +122,12 @@ const App: React.FC = () => {
         const heightDiff = window.innerHeight - newHeight;
         const isKeyboardOpen = heightDiff > 150;
         setKeyboardOpen(isKeyboardOpen);
+        
+        // Установка высоты клавиатуры как CSS переменной
+        document.documentElement.style.setProperty(
+          '--keyboard-height', 
+          isKeyboardOpen ? `${heightDiff}px` : '0px'
+        );
         
         // Add or remove keyboard-open class to body
         if (isKeyboardOpen) {
@@ -138,12 +144,22 @@ const App: React.FC = () => {
       }
     };
     
+    // Добавляем все возможные обработчики событий для отслеживания клавиатуры
     window.visualViewport?.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('scroll', handleResize);
     window.addEventListener('resize', handleResize);
+    window.addEventListener('focusin', handleResize);
+    window.addEventListener('focusout', handleResize);
+    
+    // Принудительно вызываем обработчик при монтировании
+    setTimeout(handleResize, 100);
     
     return () => {
       window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('focusin', handleResize);
+      window.removeEventListener('focusout', handleResize);
       
       // Clean up Telegram event listeners
       if (window.Telegram?.WebApp) {

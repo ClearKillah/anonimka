@@ -6,8 +6,6 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="format-detection" content="telephone=no">
-  <meta name="robots" content="noindex, nofollow" />
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <title>Telegram Anonymous Chat</title>
   <style>
     /* Критические стили для предотвращения проблем с клавиатурой */
@@ -43,12 +41,6 @@
   <script>
     // Скрипт для принудительного позиционирования поля ввода над клавиатурой
     document.addEventListener('DOMContentLoaded', function() {
-      // Инициализация Telegram Web App
-      if (window.Telegram && window.Telegram.WebApp) {
-        window.Telegram.WebApp.ready();
-        window.Telegram.WebApp.expand();
-      }
-      
       // Для iOS устройств
       if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
         document.addEventListener('focusin', function(e) {
