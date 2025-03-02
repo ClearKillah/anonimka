@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const path = require('path');
 
 const User = require('./models/User');
 const Message = require('./models/Message');
@@ -13,6 +14,13 @@ dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const clientPath = path.join(__dirname, '../public');
+app.use(express.static(clientPath));
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(clientPath, 'index.html'));
+});
 
 const server = http.createServer(app);
 const io = socketIo(server, {
