@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import './index.css';
+import Chat from './components/Chat';
 
 import RegistrationScreen from './components/RegistrationScreen';
 import SearchingScreen from './components/SearchingScreen';
@@ -65,17 +66,18 @@ const App: React.FC = () => {
       }
     }, 15000); // каждые 15 секунд
 
-    if (window.Telegram?.WebApp) {
-      const tg = window.Telegram.WebApp;
-      tg.ready();
-      tg.expand();
+    // Инициализация Telegram WebApp
+    const handleTelegramWebAppReady = () => {
+      // @ts-ignore
+      window.Telegram.WebApp.ready();
+      // @ts-ignore
+      window.Telegram.WebApp.expand();
+    };
 
-      document.documentElement.style.setProperty('--tg-theme-bg-color', tg.themeParams.bg_color);
-      document.documentElement.style.setProperty('--tg-theme-text-color', tg.themeParams.text_color);
-      document.documentElement.style.setProperty('--tg-theme-hint-color', tg.themeParams.hint_color);
-      document.documentElement.style.setProperty('--tg-theme-link-color', tg.themeParams.link_color);
-      document.documentElement.style.setProperty('--tg-theme-button-color', tg.themeParams.button_color);
-      document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.themeParams.button_text_color);
+    if (window.Telegram) {
+      handleTelegramWebAppReady();
+    } else {
+      document.addEventListener('DOMContentLoaded', handleTelegramWebAppReady);
     }
 
     const setVh = () => {
@@ -90,6 +92,7 @@ const App: React.FC = () => {
       if (newSocket) newSocket.disconnect();
       window.removeEventListener('resize', setVh);
       clearInterval(heartbeatInterval); // очищаем интервал
+      document.removeEventListener('DOMContentLoaded', handleTelegramWebAppReady);
     };
   }, []);
 
@@ -208,7 +211,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="viewport-height">
+    <div className="h-screen flex flex-col bg-gray-100">
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded fixed top-0 left-0 right-0 z-50">
           {error}
@@ -236,6 +239,7 @@ const App: React.FC = () => {
           onNextPartner={handleNextPartner}
         />
       )}
+      <Chat />
     </div>
   );
 };
