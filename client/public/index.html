@@ -10,178 +10,79 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <title>Telegram Anonymous Chat</title>
   <style>
-    /* Критические стили для Telegram Mini Apps */
-    :root {
-      --tg-viewport-height: 100vh;
-      --tg-viewport-stable-height: 100vh;
-      --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
-      --keyboard-height: 0px;
-    }
-    
+    /* Базовые стили */
     html, body, #root {
       height: 100%;
-      height: var(--tg-viewport-stable-height);
       margin: 0;
       padding: 0;
       overflow: hidden;
-      position: relative;
-      -webkit-tap-highlight-color: transparent;
-    }
-    
-    /* Предотвращаем скачки при появлении клавиатуры */
-    body {
       position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
       width: 100%;
-      height: 100%;
-      overflow: hidden;
-      -webkit-overflow-scrolling: touch;
-      touch-action: pan-x pan-y;
     }
     
-    /* Стили для поля ввода - ГАРАНТИРОВАННОЕ ПОЗИЦИОНИРОВАНИЕ НАД КЛАВИАТУРОЙ */
-    .input-container {
-      position: fixed !important;
-      bottom: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      z-index: 9999 !important;
-      background-color: var(--tg-theme-bg-color, #ffffff) !important;
-      padding-bottom: calc(var(--safe-area-inset-bottom) + 8px) !important;
-      transform: translateZ(0) !important;
-      will-change: transform !important;
-      transition: transform 0.1s ease-out !important;
-    }
-    
-    /* Класс для iOS устройств */
-    .ios-device .input-container {
-      transform: translateY(calc(-1 * var(--keyboard-height))) !important;
-    }
-    
-    /* Класс для активной клавиатуры */
-    .keyboard-open .input-container {
-      transform: translateY(0) !important;
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+        Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      background-color: var(--tg-theme-bg-color, #ffffff);
+      color: var(--tg-theme-text-color, #000000);
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
     }
     
     /* Стили для контейнера сообщений */
     .message-list {
-      padding-bottom: 70px !important;
       -webkit-overflow-scrolling: touch;
+    }
+    
+    /* Стили для контейнера ввода */
+    .input-container {
+      position: sticky;
+      bottom: 0;
+      background-color: var(--tg-theme-bg-color, #ffffff);
+      z-index: 100;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
     }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script>
-    // Скрипт для принудительного позиционирования поля ввода над клавиатурой в Telegram Mini Apps
     document.addEventListener('DOMContentLoaded', function() {
-      // Определяем iOS устройство
-      if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-        document.body.classList.add('ios-device');
-      }
-      
       // Инициализация Telegram Web App
       if (window.Telegram && window.Telegram.WebApp) {
         const webApp = window.Telegram.WebApp;
         webApp.ready();
         webApp.expand();
         
-        // Устанавливаем CSS переменные для высоты viewport
-        document.documentElement.style.setProperty(
-          '--tg-viewport-stable-height', 
-          `${webApp.viewportStableHeight}px`
-        );
+        // Отключаем вертикальные свайпы для предотвращения закрытия приложения
+        if (typeof webApp.enableClosingConfirmation === 'function') {
+          webApp.enableClosingConfirmation();
+        }
         
-        document.documentElement.style.setProperty(
-          '--tg-viewport-height', 
-          `${webApp.viewportHeight}px`
-        );
+        if (typeof webApp.disableSwipe === 'function') {
+          webApp.disableSwipe();
+        }
         
-        // Отслеживаем изменения viewport
-        webApp.onEvent('viewportChanged', function(event) {
-          document.documentElement.style.setProperty(
-            '--tg-viewport-height', 
-            `${webApp.viewportHeight}px`
-          );
-          
-          if (event.isStateStable) {
-            document.documentElement.style.setProperty(
-              '--tg-viewport-stable-height', 
-              `${webApp.viewportStableHeight}px`
-            );
-          }
-        });
+        if (typeof webApp.disableVerticalSwipes === 'function') {
+          webApp.disableVerticalSwipes();
+        }
       }
       
       // Обработка фокуса на поле ввода
       document.addEventListener('focusin', function(e) {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-          document.body.classList.add('keyboard-open');
-          
           // Прокручиваем до элемента с задержкой
           setTimeout(function() {
-            e.target.scrollIntoView(false);
-            
-            // Находим контейнер ввода
-            const inputContainer = document.querySelector('.input-container');
-            if (inputContainer) {
-              // Принудительно позиционируем над клавиатурой
-              inputContainer.style.position = 'fixed';
-              inputContainer.style.bottom = '0';
-              inputContainer.style.zIndex = '9999';
-              
-              // Для iOS устройств
-              if (document.body.classList.contains('ios-device')) {
-                // Определяем высоту клавиатуры
-                const keyboardHeight = window.innerHeight - window.visualViewport.height;
-                document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-              }
-            }
+            e.target.scrollIntoView({ block: 'end', behavior: 'smooth' });
           }, 100);
         }
       });
-      
-      // Обработка потери фокуса
-      document.addEventListener('focusout', function(e) {
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-          document.body.classList.remove('keyboard-open');
-          document.documentElement.style.setProperty('--keyboard-height', '0px');
-        }
-      });
-      
-      // Отслеживаем изменения размера viewport
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', function() {
-          if (document.activeElement && 
-              (document.activeElement.tagName === 'INPUT' || 
-               document.activeElement.tagName === 'TEXTAREA')) {
-            
-            // Определяем высоту клавиатуры
-            const keyboardHeight = window.innerHeight - window.visualViewport.height;
-            if (keyboardHeight > 150) {
-              document.body.classList.add('keyboard-open');
-              document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-              
-              // Находим контейнер ввода
-              const inputContainer = document.querySelector('.input-container');
-              if (inputContainer) {
-                // Принудительно позиционируем над клавиатурой
-                inputContainer.style.position = 'fixed';
-                inputContainer.style.bottom = '0';
-                inputContainer.style.zIndex = '9999';
-              }
-            } else {
-              document.body.classList.remove('keyboard-open');
-              document.documentElement.style.setProperty('--keyboard-height', '0px');
-            }
-          }
-        });
-        
-        // Принудительно вызываем обработчик при загрузке
-        setTimeout(function() {
-          const event = new Event('resize');
-          window.visualViewport.dispatchEvent(event);
-        }, 300);
-      }
     });
   </script>
 </body>

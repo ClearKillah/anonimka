@@ -41,12 +41,13 @@ module.exports = (env, argv) => {
       hot: true,
       historyApiFallback: true,
       open: true,
-      proxy: {
-        '/api': {
+      proxy: [
+        {
+          context: ['/api'],
           target: 'http://localhost:3001',
           secure: false
         }
-      }
+      ]
     }
   };
 }; 
