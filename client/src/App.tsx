@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
 import './index.css';
 
 import StartScreen from './components/StartScreen';
@@ -7,6 +7,7 @@ import SearchingScreen from './components/SearchingScreen';
 import ChatScreen from './components/ChatScreen';
 import { Message, TelegramWebApp } from './types';
 
+// Расширяем глобальный интерфейс Window для Telegram WebApp
 declare global {
   interface Window {
     Telegram: {
@@ -15,36 +16,52 @@ declare global {
   }
 }
 
-const SOCKET_URL = process.env.NODE_ENV === 'production' 
-  ? window.location.origin
-  : 'http://localhost:5000';
+// Определяем состояния приложения
+enum AppState {
+  START,
+  SEARCHING,
+  CHAT
+}
 
 const App: React.FC = () => {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [appState, setAppState] = useState<AppState>(AppState.START);
   const [telegramId, setTelegramId] = useState<string | null>(null);
-  const [partner, setPartner] = useState<{ telegramId: string } | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [screen, setScreen] = useState<'start' | 'searching' | 'chat'>('start');
+  const [socket, setSocket] = useState<any>(null);
   const [socketConnected, setSocketConnected] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
-  
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
   const tgMainButton = useRef<any>(null);
 
+  // Инициализация сокета
   useEffect(() => {
-    console.log('Connecting to socket server:', SOCKET_URL);
-    const newSocket = io(SOCKET_URL, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
+    const apiUrl = process.env.NODE_ENV === 'production' 
+      ? window.location.origin
+      : 'http://localhost:3001';
+    
+    const newSocket = io(apiUrl);
     
     newSocket.on('connect', () => {
       console.log('Socket connected');
       setSocketConnected(true);
       setError(null);
+    });
+    
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setSocketConnected(false);
+    });
+    
+    newSocket.on('chat-start', (data) => {
+      console.log('Chat started', data);
+      setAppState(AppState.CHAT);
+      setMessages([]);
+    });
+    
+    newSocket.on('message', (data) => {
+      console.log('Message received', data);
+      setMessages((prevMessages) => [...prevMessages, { ...data, isOwn: false }]);
     });
     
     newSocket.on('connect_error', (err) => {
@@ -90,36 +107,19 @@ const App: React.FC = () => {
         // Initialize main button
         tgMainButton.current = webApp.MainButton;
         
-        // Set CSS variables for viewport height
-        document.documentElement.style.setProperty(
-          '--tg-viewport-stable-height', 
-          `${webApp.viewportStableHeight || window.innerHeight}px`
-        );
+        // Отключаем вертикальные свайпы для предотвращения закрытия приложения
+        if (typeof webApp.enableClosingConfirmation === 'function') {
+          webApp.enableClosingConfirmation();
+        }
         
-        document.documentElement.style.setProperty(
-          '--tg-viewport-height', 
-          `${webApp.viewportHeight || window.innerHeight}px`
-        );
+        // Отключаем свайпы для предотвращения закрытия приложения
+        if (typeof webApp.disableSwipe === 'function') {
+          webApp.disableSwipe();
+        }
         
-        // Listen to viewport changes from Telegram
-        webApp.onEvent('viewportChanged', (event: any) => {
-          setViewportHeight(webApp.viewportHeight || window.innerHeight);
-          document.documentElement.style.setProperty(
-            '--tg-viewport-height', 
-            `${webApp.viewportHeight || window.innerHeight}px`
-          );
-          
-          if (event && event.isStateStable) {
-            document.documentElement.style.setProperty(
-              '--tg-viewport-stable-height', 
-              `${webApp.viewportStableHeight || window.innerHeight}px`
-            );
-          }
-        });
-        
-        // Определяем iOS устройство
-        if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-          document.body.classList.add('ios-device');
+        // Отключаем вертикальные свайпы для предотвращения закрытия приложения
+        if (typeof webApp.disableVerticalSwipes === 'function') {
+          webApp.disableVerticalSwipes();
         }
       } else if (process.env.NODE_ENV !== 'production') {
         // For development without Telegram
@@ -129,7 +129,7 @@ const App: React.FC = () => {
     
     handleTelegramWebAppReady();
     
-    // ГАРАНТИРОВАННОЕ РЕШЕНИЕ ДЛЯ КЛАВИАТУРЫ
+    // Обработка изменений размера viewport
     const handleResize = () => {
       if (window.visualViewport) {
         const newHeight = window.visualViewport.height;
@@ -139,44 +139,19 @@ const App: React.FC = () => {
         const heightDiff = window.innerHeight - newHeight;
         const isKeyboardOpen = heightDiff > 150;
         setKeyboardOpen(isKeyboardOpen);
-        
-        // Установка высоты клавиатуры как CSS переменной
-        document.documentElement.style.setProperty(
-          '--keyboard-height', 
-          isKeyboardOpen ? `${heightDiff}px` : '0px'
-        );
-        
-        // Add or remove keyboard-open class to body
-        if (isKeyboardOpen) {
-          document.body.classList.add('keyboard-open');
-        } else {
-          document.body.classList.remove('keyboard-open');
-        }
-        
-        // Update CSS variable for viewport height
-        document.documentElement.style.setProperty(
-          '--tg-viewport-height', 
-          `${newHeight}px`
-        );
       }
     };
     
-    // Добавляем все возможные обработчики событий для отслеживания клавиатуры
+    // Добавляем обработчики событий для отслеживания клавиатуры
     window.visualViewport?.addEventListener('resize', handleResize);
-    window.visualViewport?.addEventListener('scroll', handleResize);
     window.addEventListener('resize', handleResize);
-    window.addEventListener('focusin', handleResize);
-    window.addEventListener('focusout', handleResize);
     
     // Принудительно вызываем обработчик при монтировании
     setTimeout(handleResize, 100);
     
     return () => {
       window.visualViewport?.removeEventListener('resize', handleResize);
-      window.visualViewport?.removeEventListener('scroll', handleResize);
       window.removeEventListener('resize', handleResize);
-      window.removeEventListener('focusin', handleResize);
-      window.removeEventListener('focusout', handleResize);
       
       // Clean up Telegram event listeners
       if (window.Telegram?.WebApp) {
@@ -185,151 +160,76 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Initialize user when telegramId is available
+  // Register user when telegramId is available
   useEffect(() => {
-    if (socket && telegramId && socketConnected) {
-      socket.emit('init', { telegramId });
-      
-      socket.on('init_success', (data) => {
-        console.log('Initialization successful:', data);
-        
-        // If user already has a chat partner, go to chat screen
-        if (data.user.currentChatPartnerId) {
-          // Wait for chat_started event
-        } else {
-          setScreen('start');
-        }
-      });
-      
-      socket.on('searching', () => {
-        setScreen('searching');
-        setPartner(null);
-        setMessages([]);
-      });
-      
-      socket.on('chat_started', (data) => {
-        console.log('Chat started:', data);
-        setPartner(data.partner);
-        setMessages(data.messages || []);
-        setScreen('chat');
-      });
-      
-      socket.on('chat_ended', (data) => {
-        console.log('Chat ended:', data);
-        setPartner(null);
-        setMessages([]);
-        setScreen('start');
-      });
-      
-      socket.on('message', (message) => {
-        setMessages(prevMessages => [...prevMessages, message]);
-      });
-      
-      socket.on('partner_disconnected', () => {
-        setError('Your partner has disconnected');
-        setPartner(null);
-        setScreen('start');
-      });
-      
-      return () => {
-        socket.off('init_success');
-        socket.off('searching');
-        socket.off('chat_started');
-        socket.off('chat_ended');
-        socket.off('message');
-        socket.off('partner_disconnected');
-      };
+    if (telegramId && socket && socketConnected) {
+      console.log('Registering user with ID:', telegramId);
+      socket.emit('register', { telegramId });
     }
-  }, [socket, telegramId, socketConnected]);
+  }, [telegramId, socket, socketConnected]);
 
-  // Handle main button for finding partner
+  // Handle errors
   useEffect(() => {
-    if (tgMainButton.current && screen === 'start') {
-      tgMainButton.current.setText('Find a chat partner');
-      tgMainButton.current.show();
-      tgMainButton.current.onClick(handleFindPartner);
-    } else if (tgMainButton.current) {
-      tgMainButton.current.hide();
-      tgMainButton.current.offClick(handleFindPartner);
+    if (error) {
+      console.error('Error:', error);
+      // Reset to start screen on error
+      setAppState(AppState.START);
     }
-    
-    return () => {
-      if (tgMainButton.current) {
-        tgMainButton.current.offClick(handleFindPartner);
+  }, [error]);
+
+  // Handle app state changes
+  useEffect(() => {
+    if (appState === AppState.SEARCHING) {
+      if (socket && socketConnected) {
+        socket.emit('find-partner', { telegramId });
       }
-    };
-  }, [screen]);
+    }
+  }, [appState, socket, socketConnected, telegramId]);
 
   const handleFindPartner = () => {
-    if (socket && socketConnected) {
-      socket.emit('find_partner');
-    }
+    setError(null);
+    setAppState(AppState.SEARCHING);
   };
 
   const handleSendMessage = (content: string) => {
-    if (socket && socketConnected && partner) {
-      socket.emit('send_message', { content });
+    if (socket && socketConnected && telegramId) {
+      const message = { content, senderId: telegramId, timestamp: new Date().toISOString() };
+      socket.emit('message', message);
+      setMessages((prevMessages) => [...prevMessages, { ...message, id: Date.now(), receiverId: '', isOwn: true }]);
     }
   };
 
   const handleNextPartner = () => {
+    setMessages([]);
+    setAppState(AppState.SEARCHING);
     if (socket && socketConnected) {
-      socket.emit('next_partner');
+      socket.emit('next-partner', { telegramId });
     }
   };
 
-  // Render appropriate screen
   const renderScreen = () => {
-    if (!socketConnected) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-4">
-          <div className="text-center">
-            <p className="text-lg mb-2">Connecting to server...</p>
-            {error && <p className="text-red-500">{error}</p>}
-          </div>
-        </div>
-      );
-    }
-
-    if (!telegramId) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full p-4">
-          <div className="text-center">
-            <p className="text-lg mb-2">Initializing Telegram Web App...</p>
-          </div>
-        </div>
-      );
-    }
-
-    switch (screen) {
-      case 'start':
+    switch (appState) {
+      case AppState.START:
         return <StartScreen onFindPartner={handleFindPartner} />;
-      case 'searching':
-        return <SearchingScreen />;
-      case 'chat':
+      case AppState.SEARCHING:
+        return <SearchingScreen onCancel={() => setAppState(AppState.START)} />;
+      case AppState.CHAT:
         return (
-          <ChatScreen
-            messages={messages}
-            onSendMessage={handleSendMessage}
+          <ChatScreen 
+            messages={messages} 
+            onSendMessage={handleSendMessage} 
             onNextPartner={handleNextPartner}
             keyboardOpen={keyboardOpen}
             viewportHeight={viewportHeight}
           />
         );
       default:
-        return null;
+        return <div>Unknown state</div>;
     }
   };
 
   return (
-    <div 
-      className="app-container bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100"
-      style={{ 
-        height: '100%',
-        maxHeight: '100%',
-        overflow: 'hidden'
-      }}
-    >
+    <div className="app-container">
       {renderScreen()}
     </div>
   );

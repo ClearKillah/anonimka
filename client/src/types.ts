@@ -32,6 +32,12 @@ export interface TelegramWebApp {
   };
   onEvent: (eventType: string, eventHandler: Function) => void;
   offEvent: (eventType: string, eventHandler?: Function) => void;
+  enableClosingConfirmation: () => void;
+  disableClosingConfirmation: () => void;
+  disableSwipe: () => void;
+  enableSwipe: () => void;
+  disableVerticalSwipes: () => void;
+  enableVerticalSwipes: () => void;
   MainButton: {
     text: string;
     color: string;
