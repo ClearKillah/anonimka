@@ -1,11 +1,13 @@
 {
-  "name": "telegram-anonymous-chat",
+  "name": "telegram-mini-chat",
   "version": "1.0.0",
-  "description": "Telegram Web App for anonymous chat",
+  "description": "Telegram Web App for simple chat",
   "main": "index.js",
   "scripts": {
     "start": "cd server && npm start",
-    "build": "cd client && npm install && npm run build && mkdir -p ../server/public && cp -r dist/* ../server/public/ && cd ../server && npm install"
+    "dev": "./dev.sh",
+    "build": "cd client && npm install && npm run build && mkdir -p ../server/public && cp -r build/* ../server/public/ && cd ../server && npm install",
+    "setup": "./setup.sh"
   },
   "author": "",
   "license": "ISC"

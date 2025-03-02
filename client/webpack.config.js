@@ -8,7 +8,7 @@ module.exports = (env, argv) => {
   return {
     entry: './src/index.tsx',
     output: {
-      path: path.resolve(__dirname, 'dist'),
+      path: path.resolve(__dirname, 'build'),
       filename: 'bundle.js',
       publicPath: '/'
     },
@@ -40,7 +40,13 @@ module.exports = (env, argv) => {
       port: 3000,
       hot: true,
       historyApiFallback: true,
-      open: true
+      open: true,
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          secure: false
+        }
+      }
     }
   };
 }; 
