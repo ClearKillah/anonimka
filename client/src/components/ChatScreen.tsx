@@ -11,11 +11,19 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messageContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   
   // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+  
+  // Focus input when component mounts
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, []);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -26,6 +34,11 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
     if (inputValue.trim()) {
       onSendMessage(inputValue.trim());
       setInputValue('');
+      
+      // Re-focus the input after sending
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 0);
     }
   };
   
@@ -70,7 +83,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       {/* Messages */}
       <div 
         ref={messageContainerRef}
-        className="flex-1 overflow-y-auto p-4"
+        className="flex-1 overflow-y-auto p-4 message-list"
         style={getMessageContainerStyle()}
       >
         {messages.length === 0 ? (
@@ -108,13 +121,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({
       </div>
       
       {/* Message Input */}
-      <div 
-        className={`bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-3 ${
-          keyboardOpen ? 'fixed bottom-0 left-0 right-0' : ''
-        }`}
-      >
+      <div className="input-container">
         <form onSubmit={handleSubmit} className="flex items-center">
           <input
+            ref={inputRef}
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}

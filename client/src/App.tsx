@@ -89,6 +89,21 @@ const App: React.FC = () => {
         
         // Initialize main button
         tgMainButton.current = webApp.MainButton;
+        
+        // Set CSS variables for viewport height
+        document.documentElement.style.setProperty(
+          '--tg-viewport-stable-height', 
+          `${window.innerHeight}px`
+        );
+        
+        // Listen to viewport changes from Telegram
+        webApp.onEvent('viewportChanged', () => {
+          setViewportHeight(window.innerHeight);
+          document.documentElement.style.setProperty(
+            '--tg-viewport-height', 
+            `${window.innerHeight}px`
+          );
+        });
       } else if (process.env.NODE_ENV !== 'production') {
         // For development without Telegram
         setTelegramId(`dev_${Math.floor(Math.random() * 10000)}`);
@@ -99,12 +114,28 @@ const App: React.FC = () => {
     
     // Handle viewport changes for mobile keyboard
     const handleResize = () => {
-      const newHeight = window.visualViewport?.height || window.innerHeight;
-      setViewportHeight(newHeight);
-      
-      // Detect if keyboard is open
-      const heightDiff = window.innerHeight - newHeight;
-      setKeyboardOpen(heightDiff > 150);
+      if (window.visualViewport) {
+        const newHeight = window.visualViewport.height;
+        setViewportHeight(newHeight);
+        
+        // Detect if keyboard is open
+        const heightDiff = window.innerHeight - newHeight;
+        const isKeyboardOpen = heightDiff > 150;
+        setKeyboardOpen(isKeyboardOpen);
+        
+        // Add or remove keyboard-open class to body
+        if (isKeyboardOpen) {
+          document.body.classList.add('keyboard-open');
+        } else {
+          document.body.classList.remove('keyboard-open');
+        }
+        
+        // Update CSS variable for viewport height
+        document.documentElement.style.setProperty(
+          '--tg-viewport-height', 
+          `${newHeight}px`
+        );
+      }
     };
     
     window.visualViewport?.addEventListener('resize', handleResize);
@@ -113,6 +144,11 @@ const App: React.FC = () => {
     return () => {
       window.visualViewport?.removeEventListener('resize', handleResize);
       window.removeEventListener('resize', handleResize);
+      
+      // Clean up Telegram event listeners
+      if (window.Telegram?.WebApp) {
+        window.Telegram.WebApp.offEvent('viewportChanged');
+      }
     };
   }, []);
 

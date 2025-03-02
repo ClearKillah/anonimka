@@ -28,6 +28,8 @@ export interface TelegramWebApp {
       username?: string;
     };
   };
+  onEvent: (eventType: string, eventHandler: Function) => void;
+  offEvent: (eventType: string, eventHandler?: Function) => void;
   MainButton: {
     text: string;
     color: string;
