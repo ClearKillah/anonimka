@@ -1,39 +1,59 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-// Путь к файлу базы данных
+// Path to the database file
 const dbPath = path.resolve(__dirname, 'database.sqlite');
 
-// Создание и открытие базы данных
+// Create and open the database
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
-    console.error('Ошибка при открытии базы данных:', err.message);
+    console.error('Error opening database:', err.message);
   } else {
-    console.log('Подключение к базе данных SQLite успешно установлено');
+    console.log('SQLite database connection established successfully');
   }
 });
 
-// Создание таблицы пользователей, если она не существует
+// Create users table if it doesn't exist
 const createUsersTable = () => {
   const query = `CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nickname TEXT NOT NULL UNIQUE,
+    telegramId TEXT NOT NULL UNIQUE,
     isActive BOOLEAN DEFAULT 1,
-    currentChatPartnerId INTEGER,
+    currentChatPartnerId TEXT,
     socketId TEXT,
     lastActive DATETIME DEFAULT CURRENT_TIMESTAMP
   )`;
 
   db.run(query, (err) => {
     if (err) {
-      console.error('Ошибка при создании таблицы пользователей:', err.message);
+      console.error('Error creating users table:', err.message);
     } else {
-      console.log('Таблица пользователей успешно создана или уже существует');
+      console.log('Users table created successfully or already exists');
     }
   });
 };
 
-// Инициализация базы данных
+// Create messages table if it doesn't exist
+const createMessagesTable = () => {
+  const query = `CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    senderId TEXT NOT NULL,
+    receiverId TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`;
+
+  db.run(query, (err) => {
+    if (err) {
+      console.error('Error creating messages table:', err.message);
+    } else {
+      console.log('Messages table created successfully or already exists');
+    }
+  });
+};
+
+// Initialize database
 createUsersTable();
+createMessagesTable();
 
 module.exports = db; 

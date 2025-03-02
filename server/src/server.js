@@ -1,14 +1,10 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const path = require('path');
 const db = require('./db');
-
-const User = require('./models/User');
-const Message = require('./models/Message');
 
 dotenv.config();
 
@@ -16,9 +12,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Serve static files from the public directory
 const clientPath = path.join(__dirname, '../public');
 app.use(express.static(clientPath));
 
+// Serve index.html for all routes
 app.get('*', (req, res) => {
   res.sendFile(path.join(clientPath, 'index.html'));
 });
@@ -34,320 +32,600 @@ const io = socketIo(server, {
   pingInterval: 25000
 });
 
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/telegram-chat')
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
-
+// Store waiting users and active connections
 const waitingUsers = new Set();
 const activeConnections = new Map();
 
-// Проверка активных соединений каждые 30 секунд
-setInterval(async () => {
+// Check active connections every 30 seconds
+setInterval(() => {
   console.log('Checking active connections, count:', activeConnections.size);
   const now = Date.now();
   
   for (const [socketId, data] of activeConnections.entries()) {
     const timeSinceLastActivity = now - data.lastActive;
-    // Если пользователь не активен более 5 минут
+    
+    // If inactive for more than 5 minutes, disconnect
     if (timeSinceLastActivity > 5 * 60 * 1000) {
-      console.log('Cleaning up inactive connection:', socketId);
-      
-      // Удаляем из списка активных соединений
-      activeConnections.delete(socketId);
-      
-      // Проверяем, есть ли у неактивного пользователя активный чат
-      const userId = data.userId;
-      if (userId) {
-        const user = await User.findById(userId);
-        if (user && user.currentChatPartnerId) {
-          const partnerId = user.currentChatPartnerId;
-          const partner = await User.findById(partnerId);
-          
-          if (partner) {
-            console.log('Notifying partner that user became inactive:', partner.nickname);
-            partner.currentChatPartnerId = null;
-            await User.update(partner);
-            io.to(partner.socketId).emit('partnerLeft');
-          }
-          
-          user.currentChatPartnerId = null;
-          user.isActive = false;
-          await User.update(user);
-        }
+      console.log(`Disconnecting inactive user: ${socketId}`);
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.disconnect(true);
       }
+      activeConnections.delete(socketId);
     }
   }
 }, 30000);
 
+// Update user's socket ID in the database
+const updateUserSocketId = async (telegramId, socketId) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      UPDATE users 
+      SET socketId = ?, isActive = 1, lastActive = CURRENT_TIMESTAMP 
+      WHERE telegramId = ?
+    `;
+    
+    db.run(query, [socketId, telegramId], function(err) {
+      if (err) {
+        console.error('Error updating user socket ID:', err);
+        reject(err);
+      } else {
+        resolve(this.changes > 0);
+      }
+    });
+  });
+};
+
+// Create a new user or update existing one
+const createOrUpdateUser = async (telegramId, socketId) => {
+  return new Promise((resolve, reject) => {
+    // First check if user exists
+    db.get('SELECT * FROM users WHERE telegramId = ?', [telegramId], (err, row) => {
+      if (err) {
+        console.error('Error checking user existence:', err);
+        reject(err);
+        return;
+      }
+      
+      if (row) {
+        // User exists, update socket ID
+        updateUserSocketId(telegramId, socketId)
+          .then(() => {
+            db.get('SELECT * FROM users WHERE telegramId = ?', [telegramId], (err, updatedUser) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve(updatedUser);
+              }
+            });
+          })
+          .catch(reject);
+      } else {
+        // Create new user
+        const query = `
+          INSERT INTO users (telegramId, socketId, isActive, lastActive)
+          VALUES (?, ?, 1, CURRENT_TIMESTAMP)
+        `;
+        
+        db.run(query, [telegramId, socketId], function(err) {
+          if (err) {
+            console.error('Error creating new user:', err);
+            reject(err);
+          } else {
+            db.get('SELECT * FROM users WHERE id = ?', [this.lastID], (err, newUser) => {
+              if (err) {
+                reject(err);
+              } else {
+                resolve(newUser);
+              }
+            });
+          }
+        });
+      }
+    });
+  });
+};
+
+// Find a chat partner for a user
+const findChatPartner = async (userId) => {
+  return new Promise((resolve, reject) => {
+    // Find a random active user who is not the current user and not already in a chat
+    const query = `
+      SELECT * FROM users 
+      WHERE telegramId != ? AND isActive = 1 AND currentChatPartnerId IS NULL
+      ORDER BY RANDOM() LIMIT 1
+    `;
+    
+    db.get(query, [userId], (err, partner) => {
+      if (err) {
+        console.error('Error finding chat partner:', err);
+        reject(err);
+      } else {
+        resolve(partner);
+      }
+    });
+  });
+};
+
+// Update chat partners
+const updateChatPartners = async (user1Id, user2Id) => {
+  return new Promise((resolve, reject) => {
+    db.run('BEGIN TRANSACTION', (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      // Update first user
+      db.run(
+        'UPDATE users SET currentChatPartnerId = ? WHERE telegramId = ?',
+        [user2Id, user1Id],
+        (err) => {
+          if (err) {
+            db.run('ROLLBACK', () => reject(err));
+            return;
+          }
+          
+          // Update second user
+          db.run(
+            'UPDATE users SET currentChatPartnerId = ? WHERE telegramId = ?',
+            [user1Id, user2Id],
+            (err) => {
+              if (err) {
+                db.run('ROLLBACK', () => reject(err));
+                return;
+              }
+              
+              db.run('COMMIT', (err) => {
+                if (err) {
+                  db.run('ROLLBACK', () => reject(err));
+                } else {
+                  resolve();
+                }
+              });
+            }
+          );
+        }
+      );
+    });
+  });
+};
+
+// Get chat history between two users
+const getChatHistory = async (user1Id, user2Id) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT * FROM messages 
+      WHERE (senderId = ? AND receiverId = ?) OR (senderId = ? AND receiverId = ?)
+      ORDER BY timestamp ASC
+    `;
+    
+    db.all(query, [user1Id, user2Id, user2Id, user1Id], (err, messages) => {
+      if (err) {
+        console.error('Error getting chat history:', err);
+        reject(err);
+      } else {
+        resolve(messages);
+      }
+    });
+  });
+};
+
+// Save a message to the database
+const saveMessage = async (senderId, receiverId, content) => {
+  return new Promise((resolve, reject) => {
+    const query = `
+      INSERT INTO messages (senderId, receiverId, content, timestamp)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `;
+    
+    db.run(query, [senderId, receiverId, content], function(err) {
+      if (err) {
+        console.error('Error saving message:', err);
+        reject(err);
+      } else {
+        db.get('SELECT * FROM messages WHERE id = ?', [this.lastID], (err, message) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(message);
+          }
+        });
+      }
+    });
+  });
+};
+
+// End chat between two users
+const endChat = async (userId) => {
+  return new Promise((resolve, reject) => {
+    // First get the user's current partner
+    db.get('SELECT currentChatPartnerId FROM users WHERE telegramId = ?', [userId], (err, user) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      
+      if (!user || !user.currentChatPartnerId) {
+        resolve(null);
+        return;
+      }
+      
+      const partnerId = user.currentChatPartnerId;
+      
+      db.run('BEGIN TRANSACTION', (err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        
+        // Update first user
+        db.run(
+          'UPDATE users SET currentChatPartnerId = NULL WHERE telegramId = ?',
+          [userId],
+          (err) => {
+            if (err) {
+              db.run('ROLLBACK', () => reject(err));
+              return;
+            }
+            
+            // Update partner
+            db.run(
+              'UPDATE users SET currentChatPartnerId = NULL WHERE telegramId = ?',
+              [partnerId],
+              (err) => {
+                if (err) {
+                  db.run('ROLLBACK', () => reject(err));
+                  return;
+                }
+                
+                db.run('COMMIT', (err) => {
+                  if (err) {
+                    db.run('ROLLBACK', () => reject(err));
+                  } else {
+                    resolve(partnerId);
+                  }
+                });
+              }
+            );
+          }
+        );
+      });
+    });
+  });
+};
+
+// Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id);
-  let currentUser = null;
   
-  // Добавляем соединение в список активных
-  activeConnections.set(socket.id, { lastActive: Date.now(), userId: null });
-
-  const updateUserSocketId = async (user) => {
-    if (!user) return;
-    user.socketId = socket.id;
-    user.lastActive = Date.now();
-    await User.update(user);
-    socket.join(user.id.toString());
-    
-    // Обновляем информацию о пользователе в списке активных соединений
-    if (activeConnections.has(socket.id)) {
-      activeConnections.get(socket.id).userId = user.id;
-      activeConnections.get(socket.id).lastActive = Date.now();
-    }
-  };
-  
-  // Обработчик heartbeat на верхнем уровне
-  socket.on('heartbeat', async () => {
-    // Обновляем время последней активности
-    if (activeConnections.has(socket.id)) {
-      activeConnections.get(socket.id).lastActive = Date.now();
-    }
-    
-    // Если есть пользователь, обновляем его активность
-    if (currentUser) {
-      currentUser.lastActive = Date.now();
-      await User.update(currentUser);
-    }
-  });
-
-  socket.on('register', async (nickname) => {
-    console.log('Registration attempt for nickname:', nickname);
+  // Initialize user connection
+  socket.on('init', async (data) => {
     try {
-      if (!nickname || typeof nickname !== 'string' || nickname.trim() === '') {
-        throw new Error('Никнейм не может быть пустым');
-      }
+      console.log('Init request:', data);
+      const { telegramId } = data;
       
-      const trimmedNickname = nickname.trim();
-      
-      // Проверяем, существует ли пользователь с таким никнеймом
-      const existingUser = await User.findOne({ nickname: trimmedNickname });
-      
-      if (existingUser) {
-        console.log('Existing user found:', existingUser.id);
-        currentUser = existingUser;
-        currentUser.isActive = true;
-        await updateUserSocketId(currentUser);
-      } else {
-        console.log('Creating new user with nickname:', trimmedNickname);
-        currentUser = await User.create({ nickname: trimmedNickname });
-        console.log('New user created:', currentUser.id);
-        await updateUserSocketId(currentUser);
-      }
-      
-      const userData = { 
-        userId: currentUser.id.toString(), 
-        nickname: currentUser.nickname 
-      };
-      
-      console.log('Emitting registered event with data:', userData);
-      socket.emit('registered', userData);
-      
-      // Добавляем искусственную задержку перед переходом к поиску
-      setTimeout(() => {
-        if (socket.connected) {
-          socket.emit('searching');
-        }
-      }, 500);
-      
-    } catch (error) {
-      console.error('Registration error:', error);
-      socket.emit('error', 'Registration failed: ' + error.message);
-    }
-  });
-
-  socket.on('findPartner', async () => {
-    console.log('Find partner request from socket:', socket.id);
-    if (!currentUser) {
-      console.log('No current user for findPartner, ignoring request');
-      socket.emit('error', 'Вы не зарегистрированы');
-      return;
-    }
-    
-    if (currentUser.currentChatPartnerId) {
-      const partnerId = currentUser.currentChatPartnerId;
-      console.log('User already has a partner:', partnerId);
-      const partner = await User.findById(partnerId);
-      
-      if (partner && partner.isActive) {
-        console.log('Reusing existing partner:', partner.nickname);
-        socket.emit('partnerFound', { partnerId, nickname: partner.nickname });
+      if (!telegramId) {
+        socket.emit('error', { message: 'Telegram ID is required' });
         return;
-      } else {
-        // Если партнер неактивен, очищаем связь
-        currentUser.currentChatPartnerId = null;
-        await User.update(currentUser);
       }
-    }
-    
-    console.log('Adding user to waiting pool:', currentUser.id);
-    waitingUsers.add(currentUser.id.toString());
-    
-    const availableUsers = [...waitingUsers].filter(id => id !== currentUser.id.toString());
-    console.log('Available users:', availableUsers);
-    
-    if (availableUsers.length > 0) {
-      const randomIndex = Math.floor(Math.random() * availableUsers.length);
-      const partnerId = availableUsers[randomIndex];
       
-      console.log('Found partner:', partnerId);
-      waitingUsers.delete(currentUser.id.toString());
-      waitingUsers.delete(partnerId);
+      // Create or update user
+      const user = await createOrUpdateUser(telegramId, socket.id);
       
-      const partner = await User.findById(partnerId);
-      
-      if (partner && partner.isActive) {
-        console.log('Matching users:', currentUser.id, 'with', partnerId);
-        currentUser.currentChatPartnerId = partnerId;
-        partner.currentChatPartnerId = currentUser.id.toString();
-        
-        await User.update(currentUser);
-        await User.update(partner);
-        
-        console.log('Notifying users of match');
-        socket.emit('partnerFound', { partnerId, nickname: partner.nickname });
-        
-        // Используем socket ID партнера для прямой отправки
-        const partnerSocketId = partner.socketId;
-        if (partnerSocketId) {
-          io.to(partnerSocketId).emit('partnerFound', { 
-            partnerId: currentUser.id.toString(), 
-            nickname: currentUser.nickname 
-          });
-        } else {
-          io.to(partnerId).emit('partnerFound', { 
-            partnerId: currentUser.id.toString(), 
-            nickname: currentUser.nickname 
-          });
-        }
-      } else {
-        // Если партнер оказался неактивен, ищем снова
-        waitingUsers.delete(partnerId);
-        socket.emit('searching');
-        process.nextTick(() => socket.emit('findPartner'));
-      }
-    } else {
-      console.log('No partners available, emitting searching event');
-      socket.emit('searching');
-    }
-  });
-
-  socket.on('message', async (data) => {
-    if (!currentUser) {
-      socket.emit('error', 'Вы не зарегистрированы');
-      return;
-    }
-    
-    console.log('Message from', currentUser.nickname, 'to', data.receiverId, ':', data.content.substring(0, 20));
-    const { content, receiverId } = data;
-    
-    try {
-      const message = await Message.create({
-        senderId: currentUser.id.toString(),
-        receiverId,
-        content
+      // Add to active connections
+      activeConnections.set(socket.id, {
+        userId: user.telegramId,
+        lastActive: Date.now()
       });
       
-      socket.emit('messageSent', message);
+      // Send user data back to client
+      socket.emit('init_success', { user });
       
-      // Отправка сообщения в комнату получателя
-      io.to(receiverId).emit('messageReceived', message);
+      // If user already has a partner, reconnect them
+      if (user.currentChatPartnerId) {
+        // Get partner details
+        db.get('SELECT * FROM users WHERE telegramId = ?', [user.currentChatPartnerId], async (err, partner) => {
+          if (err || !partner) {
+            // If partner not found, reset user's partner
+            await endChat(user.telegramId);
+            return;
+          }
+          
+          // Get chat history
+          const messages = await getChatHistory(user.telegramId, partner.telegramId);
+          
+          // Notify user about existing chat
+          socket.emit('chat_started', {
+            partner: {
+              telegramId: partner.telegramId
+            },
+            messages
+          });
+          
+          // Notify partner about user reconnection if they're online
+          if (partner.socketId) {
+            const partnerSocket = io.sockets.sockets.get(partner.socketId);
+            if (partnerSocket) {
+              partnerSocket.emit('partner_reconnected', {
+                partner: {
+                  telegramId: user.telegramId
+                }
+              });
+            }
+          }
+        });
+      }
     } catch (error) {
-      console.error('Message error:', error);
-      socket.emit('error', 'Ошибка при отправке сообщения');
+      console.error('Error in init:', error);
+      socket.emit('error', { message: 'Failed to initialize user' });
     }
   });
-
-  socket.on('getMessages', async (partnerId) => {
-    if (!currentUser) {
-      socket.emit('error', 'Вы не зарегистрированы');
-      return;
-    }
-    
-    console.log('Get messages between', currentUser.id, 'and', partnerId);
+  
+  // Find a chat partner
+  socket.on('find_partner', async () => {
     try {
-      const messages = await Message.find({
-        $or: [
-          { senderId: currentUser.id.toString(), receiverId: partnerId },
-          { senderId: partnerId, receiverId: currentUser.id.toString() }
-        ]
-      }).sort({ timestamp: 1 });
-      
-      console.log('Found', messages.length, 'messages');
-      socket.emit('messages', messages);
-    } catch (error) {
-      console.error('Get messages error:', error);
-      socket.emit('error', 'Ошибка при получении сообщений');
-    }
-  });
-
-  socket.on('nextPartner', async () => {
-    if (!currentUser) {
-      socket.emit('error', 'Вы не зарегистрированы');
-      return;
-    }
-    
-    console.log('Next partner request from', currentUser.nickname);
-    if (currentUser.currentChatPartnerId) {
-      const partnerId = currentUser.currentChatPartnerId;
-      const partner = await User.findById(partnerId);
-      
-      if (partner) {
-        console.log('Notifying partner', partner.nickname, 'that user left');
-        partner.currentChatPartnerId = null;
-        await User.update(partner);
-        io.to(partnerId).emit('partnerLeft');
+      const userData = activeConnections.get(socket.id);
+      if (!userData) {
+        socket.emit('error', { message: 'User not found' });
+        return;
       }
       
-      currentUser.currentChatPartnerId = null;
-      await User.update(currentUser);
+      const { userId } = userData;
+      
+      // Update last active timestamp
+      activeConnections.set(socket.id, {
+        ...userData,
+        lastActive: Date.now()
+      });
+      
+      // Add user to waiting list
+      waitingUsers.add(userId);
+      socket.emit('searching');
+      
+      // Try to find a partner
+      const partner = await findChatPartner(userId);
+      
+      // If no partner found, wait for someone else to find this user
+      if (!partner) {
+        console.log(`No partner found for user ${userId}, waiting...`);
+        return;
+      }
+      
+      // Remove user from waiting list
+      waitingUsers.delete(userId);
+      
+      // Update chat partners in database
+      await updateChatPartners(userId, partner.telegramId);
+      
+      // Get partner's socket
+      const partnerSocket = io.sockets.sockets.get(partner.socketId);
+      
+      if (!partnerSocket) {
+        // Partner is offline, reset the chat
+        await endChat(userId);
+        socket.emit('error', { message: 'Partner is offline' });
+        return;
+      }
+      
+      // Notify both users about the chat
+      socket.emit('chat_started', {
+        partner: {
+          telegramId: partner.telegramId
+        },
+        messages: []
+      });
+      
+      partnerSocket.emit('chat_started', {
+        partner: {
+          telegramId: userId
+        },
+        messages: []
+      });
+      
+    } catch (error) {
+      console.error('Error in find_partner:', error);
+      socket.emit('error', { message: 'Failed to find partner' });
     }
-    
-    console.log('Initiating new partner search');
-    socket.emit('waitingForPartner');
-    socket.emit('findPartner');
   });
-
+  
+  // Send a message
+  socket.on('send_message', async (data) => {
+    try {
+      const { content } = data;
+      const userData = activeConnections.get(socket.id);
+      
+      if (!userData) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+      
+      const { userId } = userData;
+      
+      // Update last active timestamp
+      activeConnections.set(socket.id, {
+        ...userData,
+        lastActive: Date.now()
+      });
+      
+      // Get user's current partner
+      db.get('SELECT currentChatPartnerId FROM users WHERE telegramId = ?', [userId], async (err, user) => {
+        if (err || !user || !user.currentChatPartnerId) {
+          socket.emit('error', { message: 'No active chat found' });
+          return;
+        }
+        
+        const partnerId = user.currentChatPartnerId;
+        
+        // Save message to database
+        const message = await saveMessage(userId, partnerId, content);
+        
+        // Send message to both users
+        socket.emit('message', {
+          id: message.id,
+          content: message.content,
+          senderId: message.senderId,
+          receiverId: message.receiverId,
+          timestamp: message.timestamp,
+          isOwn: true
+        });
+        
+        // Get partner's socket
+        db.get('SELECT socketId FROM users WHERE telegramId = ?', [partnerId], (err, partner) => {
+          if (!err && partner && partner.socketId) {
+            const partnerSocket = io.sockets.sockets.get(partner.socketId);
+            if (partnerSocket) {
+              partnerSocket.emit('message', {
+                id: message.id,
+                content: message.content,
+                senderId: message.senderId,
+                receiverId: message.receiverId,
+                timestamp: message.timestamp,
+                isOwn: false
+              });
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('Error in send_message:', error);
+      socket.emit('error', { message: 'Failed to send message' });
+    }
+  });
+  
+  // Find next partner
+  socket.on('next_partner', async () => {
+    try {
+      const userData = activeConnections.get(socket.id);
+      if (!userData) {
+        socket.emit('error', { message: 'User not found' });
+        return;
+      }
+      
+      const { userId } = userData;
+      
+      // Update last active timestamp
+      activeConnections.set(socket.id, {
+        ...userData,
+        lastActive: Date.now()
+      });
+      
+      // End current chat
+      const partnerId = await endChat(userId);
+      
+      // Notify partner about chat end if they're online
+      if (partnerId) {
+        db.get('SELECT socketId FROM users WHERE telegramId = ?', [partnerId], (err, partner) => {
+          if (!err && partner && partner.socketId) {
+            const partnerSocket = io.sockets.sockets.get(partner.socketId);
+            if (partnerSocket) {
+              partnerSocket.emit('chat_ended', {
+                reason: 'Partner left the chat'
+              });
+            }
+          }
+        });
+      }
+      
+      // Start searching for a new partner
+      socket.emit('searching');
+      waitingUsers.add(userId);
+      
+      // Try to find a new partner
+      const newPartner = await findChatPartner(userId);
+      
+      // If no partner found, wait for someone else to find this user
+      if (!newPartner) {
+        console.log(`No new partner found for user ${userId}, waiting...`);
+        return;
+      }
+      
+      // Remove user from waiting list
+      waitingUsers.delete(userId);
+      
+      // Update chat partners in database
+      await updateChatPartners(userId, newPartner.telegramId);
+      
+      // Get partner's socket
+      const partnerSocket = io.sockets.sockets.get(newPartner.socketId);
+      
+      if (!partnerSocket) {
+        // Partner is offline, reset the chat
+        await endChat(userId);
+        socket.emit('error', { message: 'Partner is offline' });
+        return;
+      }
+      
+      // Notify both users about the chat
+      socket.emit('chat_started', {
+        partner: {
+          telegramId: newPartner.telegramId
+        },
+        messages: []
+      });
+      
+      partnerSocket.emit('chat_started', {
+        partner: {
+          telegramId: userId
+        },
+        messages: []
+      });
+      
+    } catch (error) {
+      console.error('Error in next_partner:', error);
+      socket.emit('error', { message: 'Failed to find next partner' });
+    }
+  });
+  
+  // Handle disconnection
   socket.on('disconnect', async () => {
     console.log('Client disconnected:', socket.id);
     
-    // Удаляем соединение из списка активных
-    activeConnections.delete(socket.id);
-    
-    if (currentUser) {
-      console.log('User disconnected:', currentUser.nickname);
-      waitingUsers.delete(currentUser.id.toString());
+    const userData = activeConnections.get(socket.id);
+    if (userData) {
+      const { userId } = userData;
       
-      if (currentUser.currentChatPartnerId) {
-        const partnerId = currentUser.currentChatPartnerId;
-        const partner = await User.findById(partnerId);
-        
-        if (partner) {
-          console.log('Notifying partner', partner.nickname, 'that user disconnected');
-          partner.currentChatPartnerId = null;
-          
-          // Используем socketId партнера для более надежной отправки
-          if (partner.socketId) {
-            io.to(partner.socketId).emit('partnerLeft');
-          } else {
-            io.to(partnerId).emit('partnerLeft');
+      // Remove from waiting users
+      waitingUsers.delete(userId);
+      
+      // Remove from active connections
+      activeConnections.delete(socket.id);
+      
+      // Update user status in database
+      db.run(
+        'UPDATE users SET isActive = 0 WHERE telegramId = ?',
+        [userId],
+        async (err) => {
+          if (err) {
+            console.error('Error updating user status:', err);
+            return;
           }
+          
+          // Get user's current partner
+          db.get('SELECT currentChatPartnerId FROM users WHERE telegramId = ?', [userId], async (err, user) => {
+            if (err || !user || !user.currentChatPartnerId) {
+              return;
+            }
+            
+            const partnerId = user.currentChatPartnerId;
+            
+            // Notify partner about disconnection
+            db.get('SELECT socketId FROM users WHERE telegramId = ?', [partnerId], (err, partner) => {
+              if (!err && partner && partner.socketId) {
+                const partnerSocket = io.sockets.sockets.get(partner.socketId);
+                if (partnerSocket) {
+                  partnerSocket.emit('partner_disconnected');
+                }
+              }
+            });
+          });
         }
-      }
-      
-      currentUser.isActive = false;
-      currentUser.currentChatPartnerId = null;
-      currentUser.socketId = null;
-      await User.update(currentUser);
+      );
     }
   });
 });
 
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 }); 

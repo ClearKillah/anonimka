@@ -1,26 +1,40 @@
 export interface User {
-  userId: string;
-  nickname: string;
+  id: number;
+  telegramId: string;
+  isActive: boolean;
+  currentChatPartnerId: string | null;
+  socketId: string | null;
+  lastActive: string;
 }
 
 export interface Message {
-  _id: string;
+  id: number;
   senderId: string;
   receiverId: string;
   content: string;
   timestamp: string;
+  isOwn?: boolean;
 }
 
 export interface TelegramWebApp {
   ready: () => void;
   expand: () => void;
   isExpanded: boolean;
+  initDataUnsafe?: {
+    user?: {
+      id: number;
+      first_name?: string;
+      last_name?: string;
+      username?: string;
+    };
+  };
   MainButton: {
     text: string;
     color: string;
     textColor: string;
     isVisible: boolean;
     isActive: boolean;
+    setText: (text: string) => void;
     show: () => void;
     hide: () => void;
     enable: () => void;
@@ -43,4 +57,20 @@ export interface TelegramWebApp {
     button_color: string;
     button_text_color: string;
   };
+}
+
+export interface StartScreenProps {
+  onFindPartner: () => void;
+}
+
+export interface SearchingScreenProps {
+  onCancel?: () => void;
+}
+
+export interface ChatScreenProps {
+  messages: Message[];
+  onSendMessage: (content: string) => void;
+  onNextPartner: () => void;
+  keyboardOpen: boolean;
+  viewportHeight: number;
 } 

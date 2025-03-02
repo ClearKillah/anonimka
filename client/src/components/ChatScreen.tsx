@@ -1,129 +1,134 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Message, User } from '../types';
-
-interface ChatScreenProps {
-  user: User;
-  partner: { partnerId: string; nickname: string };
-  messages: Message[];
-  onSendMessage: (content: string) => void;
-  onNextPartner: () => void;
-}
+import { ChatScreenProps, Message } from '../types';
 
 const ChatScreen: React.FC<ChatScreenProps> = ({ 
-  user, 
-  partner, 
   messages, 
   onSendMessage, 
-  onNextPartner 
+  onNextPartner,
+  keyboardOpen,
+  viewportHeight
 }) => {
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const updateViewportHeight = () => {
-      setViewportHeight(window.visualViewport?.height || window.innerHeight);
-    };
-
-    window.visualViewport?.addEventListener('resize', updateViewportHeight);
-
-    return () => {
-      window.visualViewport?.removeEventListener('resize', updateViewportHeight);
-    };
-  }, []);
-
+  const messageContainerRef = useRef<HTMLDivElement>(null);
+  
+  // Scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
-  }, [messages, viewportHeight]);
-
+  }, [messages]);
+  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
-
-  const handleSend = (e: React.FormEvent) => {
+  
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (inputValue.trim()) {
-      onSendMessage(inputValue);
+      onSendMessage(inputValue.trim());
       setInputValue('');
     }
   };
-
+  
+  const formatTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+  
+  // Calculate message container height based on viewport and keyboard
+  const getMessageContainerStyle = () => {
+    const inputHeight = 64; // Height of input area
+    const headerHeight = 60; // Height of header
+    const bottomPadding = 16; // Bottom padding
+    
+    let height = viewportHeight - inputHeight - headerHeight - bottomPadding;
+    
+    // Ensure minimum height
+    height = Math.max(height, 200);
+    
+    return {
+      height: `${height}px`,
+      maxHeight: `${height}px`
+    };
+  };
+  
   return (
     <div className="flex flex-col h-full">
-      <div className="bg-white border-b border-gray-200 p-4 flex justify-between items-center shadow-sm z-10">
+      {/* Header */}
+      <div className="bg-gray-100 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center">
         <div>
-          <h2 className="font-semibold">{partner.nickname}</h2>
-          <p className="text-sm text-gray-500">Онлайн</p>
+          <h2 className="font-semibold">Anonymous Chat</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Connected with a random person</p>
         </div>
         <button
           onClick={onNextPartner}
-          className="px-3 py-1 bg-red-500 text-white rounded-md text-sm"
-          style={{ 
-            backgroundColor: 'var(--tg-theme-button-color)', 
-            color: 'var(--tg-theme-button-text-color)' 
-          }}
+          className="bg-blue-500 hover:bg-blue-600 text-white text-sm py-2 px-4 rounded-lg transition duration-200"
         >
-          Следующий собеседник
+          Next Partner
         </button>
       </div>
-
-      <div className="flex-1 overflow-y-auto p-4 message-list">
-        <div className="space-y-3">
-          {messages.map((message) => {
-            const isOwn = message.senderId === user.userId;
-            
-            return (
+      
+      {/* Messages */}
+      <div 
+        ref={messageContainerRef}
+        className="flex-1 overflow-y-auto p-4"
+        style={getMessageContainerStyle()}
+      >
+        {messages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <p className="text-gray-500 dark:text-gray-400 text-center">
+              Say hello to your new chat partner!
+            </p>
+          </div>
+        ) : (
+          messages.map((message: Message) => (
+            <div 
+              key={message.id} 
+              className={`mb-4 flex ${message.isOwn ? 'justify-end' : 'justify-start'}`}
+            >
               <div 
-                key={message._id} 
-                className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
+                className={`max-w-[75%] rounded-lg px-4 py-2 ${
+                  message.isOwn 
+                    ? 'bg-blue-500 text-white rounded-br-none' 
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-bl-none'
+                }`}
               >
+                <div className="break-words">{message.content}</div>
                 <div 
-                  className={`max-w-[80%] p-3 rounded-lg ${
-                    isOwn 
-                      ? 'bg-blue-500 text-white rounded-br-none' 
-                      : 'bg-gray-200 text-gray-800 rounded-bl-none'
+                  className={`text-xs mt-1 ${
+                    message.isOwn ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'
                   }`}
-                  style={isOwn ? { 
-                    backgroundColor: 'var(--tg-theme-button-color)', 
-                    color: 'var(--tg-theme-button-text-color)' 
-                  } : {}}
                 >
-                  <p className="break-words">{message.content}</p>
-                  <p className={`text-xs mt-1 text-right ${isOwn ? 'text-gray-200' : 'text-gray-500'}`}>
-                    {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </p>
+                  {formatTime(message.timestamp)}
                 </div>
               </div>
-            );
-          })}
-          <div ref={messagesEndRef} />
-        </div>
+            </div>
+          ))
+        )}
+        <div ref={messagesEndRef} />
       </div>
-
+      
+      {/* Message Input */}
       <div 
-        className="input-container" 
-        style={{ bottom: `${window.innerHeight - viewportHeight}px` }}
+        className={`bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-3 ${
+          keyboardOpen ? 'fixed bottom-0 left-0 right-0' : ''
+        }`}
       >
-        <form onSubmit={handleSend} className="flex gap-2">
+        <form onSubmit={handleSubmit} className="flex items-center">
           <input
-            ref={inputRef}
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            className="flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="Введите сообщение..."
-            autoComplete="off"
+            placeholder="Type a message..."
+            className="flex-1 border border-gray-300 dark:border-gray-600 rounded-l-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-100"
           />
           <button
             type="submit"
-            className="p-2 bg-blue-500 text-white rounded-md"
-            style={{ 
-              backgroundColor: 'var(--tg-theme-button-color)', 
-              color: 'var(--tg-theme-button-text-color)' 
-            }}
+            disabled={!inputValue.trim()}
+            className={`bg-blue-500 text-white py-2 px-4 rounded-r-lg ${
+              inputValue.trim() ? 'hover:bg-blue-600' : 'opacity-50 cursor-not-allowed'
+            }`}
           >
-            Отправить
+            Send
           </button>
         </form>
       </div>

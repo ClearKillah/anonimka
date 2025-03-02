@@ -1,97 +1,130 @@
-# Простой чат для Telegram Mini App
+# Telegram Anonymous Chat Mini App
 
-Это простое приложение чата для Telegram Mini App, которое позволяет пользователям обмениваться сообщениями в реальном времени.
+A simple anonymous chat application for Telegram that allows users to chat with random people.
 
-## Особенности
+## Features
 
-- Простой и интуитивно понятный интерфейс
-- Отображение имени пользователя
-- Отображение времени отправки сообщения
-- Автоматическая прокрутка к последнему сообщению
-- Адаптивный дизайн для мобильных устройств
+- **Anonymous Chat**: Chat with random people without revealing your identity
+- **Real-time Messaging**: Instant message delivery using WebSockets
+- **Next Partner**: Easily switch to a new chat partner at any time
+- **Mobile Optimized**: Designed specifically for mobile devices with keyboard handling
+- **Dark Mode Support**: Automatically adapts to Telegram's theme
 
-## Технологии
+## Tech Stack
 
-- **Фронтенд**: React, TypeScript, Tailwind CSS
-- **Бэкенд**: Node.js, Express
-- **Интеграция**: Telegram Mini App API
+### Frontend
+- React.js
+- TypeScript
+- Socket.io-client
+- TailwindCSS
+- Telegram Web App API
 
-## Установка и запуск
+### Backend
+- Node.js
+- Express
+- Socket.io
+- SQLite
 
-### Предварительные требования
+## Project Structure
 
-- Node.js (версия 14 или выше)
-- npm (версия 6 или выше)
-
-### Шаги по установке
-
-1. Клонируйте репозиторий:
-   ```bash
-   git clone <url-репозитория>
-   cd <название-директории>
-   ```
-
-2. Установите зависимости:
-   ```bash
-   # Автоматическая установка всех зависимостей
-   ./setup.sh
-   ```
-
-### Запуск в режиме разработки
-
-Для запуска приложения в режиме разработки выполните:
-
-```bash
-./dev.sh
+```
+├── client/                 # Frontend React application
+│   ├── src/
+│   │   ├── components/     # React components
+│   │   ├── App.tsx         # Main application component
+│   │   ├── index.tsx       # Application entry point
+│   │   ├── types.ts        # TypeScript type definitions
+│   │   └── index.css       # Global styles
+│   ├── public/             # Static assets
+│   └── package.json        # Frontend dependencies
+│
+├── server/                 # Backend Node.js application
+│   ├── src/
+│   │   ├── server.js       # Main server implementation
+│   │   └── db.js           # Database implementation
+│   ├── index.js            # Server entry point
+│   └── package.json        # Backend dependencies
+│
+└── package.json            # Root package.json for scripts
 ```
 
-Это запустит сервер на порту 3001 и клиент на порту 3000 с настроенным прокси для API.
+## Getting Started
 
-### Запуск в production режиме
+### Prerequisites
 
-1. Соберите проект:
-   ```bash
+- Node.js (v14 or higher)
+- npm or yarn
+
+### Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/telegram-mini-chat.git
+   cd telegram-mini-chat
+   ```
+
+2. Install dependencies:
+   ```
+   npm run setup
+   ```
+
+### Development
+
+1. Start the development server:
+   ```
+   npm run dev
+   ```
+
+2. Open your browser and navigate to `http://localhost:8080`
+
+### Production Build
+
+1. Build the application:
+   ```
    npm run build
    ```
 
-2. Запустите сервер:
-   ```bash
+2. Start the production server:
+   ```
    npm start
    ```
 
-3. Приложение будет доступно по адресу `http://localhost:3001`
+## Telegram Bot Setup
 
-## Устранение неполадок
+1. Create a new bot using [@BotFather](https://t.me/BotFather) on Telegram
+2. Set up a Mini App for your bot:
+   ```
+   /newapp
+   ```
+3. Follow the instructions and set the URL to your deployed application
+4. Update your bot's menu button to open the Mini App
 
-Если вы видите ошибку "Not Found", убедитесь, что:
+## Mobile Optimization
 
-1. Клиентская часть успешно собрана (проверьте наличие директории `client/build`)
-2. Файлы из `client/build` скопированы в `server/public` (если вы запускаете в production режиме)
-3. Сервер запущен и работает на правильном порту
+The application is optimized for mobile devices with the following features:
 
-## Интеграция с Telegram
+- Viewport adjustments for mobile browsers
+- Keyboard handling to prevent UI jumping
+- Safe area insets for notched devices
+- Fixed input field that stays above the keyboard
 
-1. Создайте бота в Telegram с помощью [@BotFather](https://t.me/BotFather)
-2. Получите токен API для вашего бота
-3. Настройте Webhook URL для вашего бота
-4. Добавьте бота в группу или начните с ним диалог
-5. Используйте команду `/start` для начала работы с ботом
+## Database Schema
 
-## Структура проекта
+### Users Table
+- `id`: INTEGER PRIMARY KEY
+- `telegramId`: TEXT (Telegram user ID)
+- `isActive`: BOOLEAN (User's active status)
+- `currentChatPartnerId`: TEXT (Current chat partner's Telegram ID)
+- `socketId`: TEXT (Socket.io connection ID)
+- `lastActive`: DATETIME (Last activity timestamp)
 
-```
-/
-├── client/                  # Фронтенд (React)
-│   ├── public/              # Статические файлы
-│   └── src/                 # Исходный код React
-│       ├── components/      # React компоненты
-│       └── pages/           # Страницы приложения
-├── server/                  # Бэкенд (Node.js/Express)
-│   └── index.js             # Основной файл сервера
-├── setup.sh                 # Скрипт для установки зависимостей
-└── dev.sh                   # Скрипт для запуска в режиме разработки
-```
+### Messages Table
+- `id`: INTEGER PRIMARY KEY
+- `senderId`: TEXT (Sender's Telegram ID)
+- `receiverId`: TEXT (Receiver's Telegram ID)
+- `content`: TEXT (Message content)
+- `timestamp`: DATETIME (Message timestamp)
 
-## Лицензия
+## License
 
-MIT 
+This project is licensed under the ISC License. 

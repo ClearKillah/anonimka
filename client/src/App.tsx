@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import './index.css';
-import Chat from './components/Chat';
 
-import RegistrationScreen from './components/RegistrationScreen';
+import StartScreen from './components/StartScreen';
 import SearchingScreen from './components/SearchingScreen';
 import ChatScreen from './components/ChatScreen';
-import { Message, User, TelegramWebApp } from './types';
+import { Message, TelegramWebApp } from './types';
 
 declare global {
   interface Window {
@@ -17,18 +16,21 @@ declare global {
 }
 
 const SOCKET_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://anonimka-production.up.railway.app' 
+  ? window.location.origin
   : 'http://localhost:5000';
 
 const App: React.FC = () => {
   const [socket, setSocket] = useState<Socket | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [partner, setPartner] = useState<{ partnerId: string; nickname: string } | null>(null);
+  const [telegramId, setTelegramId] = useState<string | null>(null);
+  const [partner, setPartner] = useState<{ telegramId: string } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [screen, setScreen] = useState<'registration' | 'searching' | 'chat'>('registration');
+  const [screen, setScreen] = useState<'start' | 'searching' | 'chat'>('start');
   const [socketConnected, setSocketConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
+  
+  const tgMainButton = useRef<any>(null);
 
   useEffect(() => {
     console.log('Connecting to socket server:', SOCKET_URL);
@@ -48,198 +50,218 @@ const App: React.FC = () => {
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err);
       setSocketConnected(false);
-      setError(`Ошибка соединения: ${err.message}`);
+      setError('Connection error. Please try again later.');
     });
     
-    newSocket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
-      setSocketConnected(false);
+    newSocket.on('error', (data) => {
+      console.error('Socket error:', data);
+      setError(data.message || 'An error occurred');
     });
-
+    
     setSocket(newSocket);
-
-    // Добавляем периодическую отправку heartbeat
-    const heartbeatInterval = setInterval(() => {
-      if (newSocket.connected) {
-        console.log('Sending heartbeat');
-        newSocket.emit('heartbeat');
-      }
-    }, 15000); // каждые 15 секунд
-
-    // Инициализация Telegram WebApp
-    const handleTelegramWebAppReady = () => {
-      // @ts-ignore
-      window.Telegram.WebApp.ready();
-      // @ts-ignore
-      window.Telegram.WebApp.expand();
-    };
-
-    if (window.Telegram) {
-      handleTelegramWebAppReady();
-    } else {
-      document.addEventListener('DOMContentLoaded', handleTelegramWebAppReady);
-    }
-
-    const setVh = () => {
-      const vh = window.innerHeight * 0.01;
-      document.documentElement.style.setProperty('--vh', `${vh}px`);
-    };
-
-    setVh();
-    window.addEventListener('resize', setVh);
-
+    
     return () => {
-      if (newSocket) newSocket.disconnect();
-      window.removeEventListener('resize', setVh);
-      clearInterval(heartbeatInterval); // очищаем интервал
-      document.removeEventListener('DOMContentLoaded', handleTelegramWebAppReady);
+      newSocket.disconnect();
     };
   }, []);
 
+  // Initialize Telegram Web App
   useEffect(() => {
-    if (!socket) return;
-
-    socket.on('registered', (userData: User) => {
-      console.log('Registered:', userData);
-      setUser(userData);
-      
-      // При успешной регистрации показываем экран поиска
-      setIsSearching(false);
-      setScreen('searching');
-    });
-
-    socket.on('searching', () => {
-      console.log('Searching for partner');
-      setIsSearching(true);
-      // После регистрации показываем экран поиска
-      setScreen('searching');
-    });
-
-    socket.on('partnerFound', (partnerData) => {
-      console.log('Partner found:', partnerData);
-      setPartner(partnerData);
-      setIsSearching(false);
-      setScreen('chat');
-      socket.emit('getMessages', partnerData.partnerId);
-    });
-
-    socket.on('messages', (messageData: Message[]) => {
-      console.log('Messages received:', messageData);
-      setMessages(messageData);
-    });
-
-    socket.on('messageSent', (message: Message) => {
-      console.log('Message sent:', message);
-      setMessages(prev => [...prev, message]);
-    });
-
-    socket.on('messageReceived', (message: Message) => {
-      console.log('Message received:', message);
-      setMessages(prev => [...prev, message]);
-    });
-
-    socket.on('partnerLeft', () => {
-      console.log('Partner left');
-      setPartner(null);
-      setMessages([]);
-      setScreen('searching');
-    });
-
-    socket.on('waitingForPartner', () => {
-      console.log('Waiting for partner');
-      setPartner(null);
-      setMessages([]);
-      setIsSearching(true);
-    });
-
-    socket.on('error', (errorMsg) => {
-      console.error('Socket error:', errorMsg);
-      setError(errorMsg);
-    });
-
-    return () => {
-      socket.off('registered');
-      socket.off('searching');
-      socket.off('partnerFound');
-      socket.off('messages');
-      socket.off('messageSent');
-      socket.off('messageReceived');
-      socket.off('partnerLeft');
-      socket.off('waitingForPartner');
-      socket.off('error');
-    };
-  }, [socket]);
-
-  const handleRegister = (nickname: string) => {
-    console.log('Registering with nickname:', nickname);
-    if (socket) {
-      if (socket.connected) {
-        console.log('Emitting register event');
-        socket.emit('register', nickname);
-        // Показываем загрузку в компоненте RegistrationScreen
-      } else {
-        console.error('Socket not connected');
-        setError('Соединение с сервером потеряно. Перезагрузите страницу.');
+    const handleTelegramWebAppReady = () => {
+      if (window.Telegram?.WebApp) {
+        const webApp = window.Telegram.WebApp;
+        
+        // Initialize Telegram Web App
+        webApp.ready();
+        
+        // Set viewport height
+        webApp.expand();
+        
+        // Get user ID from Telegram
+        if (webApp.initDataUnsafe?.user?.id) {
+          setTelegramId(webApp.initDataUnsafe.user.id.toString());
+        } else {
+          // For development, use a random ID
+          if (process.env.NODE_ENV !== 'production') {
+            setTelegramId(`dev_${Math.floor(Math.random() * 10000)}`);
+          }
+        }
+        
+        // Initialize main button
+        tgMainButton.current = webApp.MainButton;
+      } else if (process.env.NODE_ENV !== 'production') {
+        // For development without Telegram
+        setTelegramId(`dev_${Math.floor(Math.random() * 10000)}`);
       }
-    } else {
-      console.error('Socket not available');
-      setError('Соединение с сервером не установлено');
+    };
+    
+    handleTelegramWebAppReady();
+    
+    // Handle viewport changes for mobile keyboard
+    const handleResize = () => {
+      const newHeight = window.visualViewport?.height || window.innerHeight;
+      setViewportHeight(newHeight);
+      
+      // Detect if keyboard is open
+      const heightDiff = window.innerHeight - newHeight;
+      setKeyboardOpen(heightDiff > 150);
+    };
+    
+    window.visualViewport?.addEventListener('resize', handleResize);
+    window.addEventListener('resize', handleResize);
+    
+    return () => {
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+
+  // Initialize user when telegramId is available
+  useEffect(() => {
+    if (socket && telegramId && socketConnected) {
+      socket.emit('init', { telegramId });
+      
+      socket.on('init_success', (data) => {
+        console.log('Initialization successful:', data);
+        
+        // If user already has a chat partner, go to chat screen
+        if (data.user.currentChatPartnerId) {
+          // Wait for chat_started event
+        } else {
+          setScreen('start');
+        }
+      });
+      
+      socket.on('searching', () => {
+        setScreen('searching');
+        setPartner(null);
+        setMessages([]);
+      });
+      
+      socket.on('chat_started', (data) => {
+        console.log('Chat started:', data);
+        setPartner(data.partner);
+        setMessages(data.messages || []);
+        setScreen('chat');
+      });
+      
+      socket.on('chat_ended', (data) => {
+        console.log('Chat ended:', data);
+        setPartner(null);
+        setMessages([]);
+        setScreen('start');
+      });
+      
+      socket.on('message', (message) => {
+        setMessages(prevMessages => [...prevMessages, message]);
+      });
+      
+      socket.on('partner_disconnected', () => {
+        setError('Your partner has disconnected');
+        setPartner(null);
+        setScreen('start');
+      });
+      
+      return () => {
+        socket.off('init_success');
+        socket.off('searching');
+        socket.off('chat_started');
+        socket.off('chat_ended');
+        socket.off('message');
+        socket.off('partner_disconnected');
+      };
     }
-  };
+  }, [socket, telegramId, socketConnected]);
+
+  // Handle main button for finding partner
+  useEffect(() => {
+    if (tgMainButton.current && screen === 'start') {
+      tgMainButton.current.setText('Find a chat partner');
+      tgMainButton.current.show();
+      tgMainButton.current.onClick(handleFindPartner);
+    } else if (tgMainButton.current) {
+      tgMainButton.current.hide();
+      tgMainButton.current.offClick(handleFindPartner);
+    }
+    
+    return () => {
+      if (tgMainButton.current) {
+        tgMainButton.current.offClick(handleFindPartner);
+      }
+    };
+  }, [screen]);
 
   const handleFindPartner = () => {
-    console.log('Finding partner');
-    if (socket) {
-      setIsSearching(true);
-      socket.emit('findPartner');
+    if (socket && socketConnected) {
+      socket.emit('find_partner');
     }
   };
 
   const handleSendMessage = (content: string) => {
-    console.log('Sending message:', content);
-    if (socket && partner) {
-      socket.emit('message', { content, receiverId: partner.partnerId });
+    if (socket && socketConnected && partner) {
+      socket.emit('send_message', { content });
     }
   };
 
   const handleNextPartner = () => {
-    console.log('Finding next partner');
-    if (socket) {
-      setScreen('searching');
-      socket.emit('nextPartner');
+    if (socket && socketConnected) {
+      socket.emit('next_partner');
+    }
+  };
+
+  // Render appropriate screen
+  const renderScreen = () => {
+    if (!socketConnected) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-4">
+          <div className="text-center">
+            <p className="text-lg mb-2">Connecting to server...</p>
+            {error && <p className="text-red-500">{error}</p>}
+          </div>
+        </div>
+      );
+    }
+
+    if (!telegramId) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full p-4">
+          <div className="text-center">
+            <p className="text-lg mb-2">Initializing Telegram Web App...</p>
+          </div>
+        </div>
+      );
+    }
+
+    switch (screen) {
+      case 'start':
+        return <StartScreen onFindPartner={handleFindPartner} />;
+      case 'searching':
+        return <SearchingScreen />;
+      case 'chat':
+        return (
+          <ChatScreen
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onNextPartner={handleNextPartner}
+            keyboardOpen={keyboardOpen}
+            viewportHeight={viewportHeight}
+          />
+        );
+      default:
+        return null;
     }
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded fixed top-0 left-0 right-0 z-50">
-          {error}
-        </div>
-      )}
-      
-      {!socketConnected && (
-        <div className="fixed bottom-0 left-0 right-0 bg-yellow-100 text-yellow-800 p-2 text-center z-50">
-          Подключение к серверу...
-        </div>
-      )}
-      
-      {screen === 'registration' && (
-        <RegistrationScreen onRegister={handleRegister} />
-      )}
-      {screen === 'searching' && (
-        <SearchingScreen onFind={handleFindPartner} isSearching={isSearching} />
-      )}
-      {screen === 'chat' && user && partner && (
-        <ChatScreen
-          user={user}
-          partner={partner}
-          messages={messages}
-          onSendMessage={handleSendMessage}
-          onNextPartner={handleNextPartner}
-        />
-      )}
-      <Chat />
+    <div 
+      className="app-container bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+      style={{ 
+        height: '100%',
+        maxHeight: '100%',
+        overflow: 'hidden'
+      }}
+    >
+      {renderScreen()}
     </div>
   );
 };
